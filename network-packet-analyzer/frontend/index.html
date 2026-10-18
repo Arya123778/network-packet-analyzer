@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Packet Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wordmark">
+      <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
+        <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".28"/>
+        <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".55"/>
+        <circle cx="16" cy="16" r="4" fill="currentColor"/>
+        <circle cx="26" cy="9" r="2.4" fill="var(--c-tcp)"/>
+      </svg>
+      <h1>Packet Analyzer</h1>
+    </div>
+    <div class="status" id="status" role="status">
+      <span class="dot"></span><span id="status-text">Idle</span>
+    </div>
+  </header>
+
+  <form class="dock" id="capture-form">
+    <div class="field">
+      <label for="iface">Interface</label>
+      <select id="iface"><option value="">Default interface</option></select>
+    </div>
+    <div class="field grow">
+      <label for="bpf">Capture filter</label>
+      <input id="bpf" type="text" placeholder="e.g. tcp port 443" autocomplete="off" spellcheck="false">
+    </div>
+    <label class="switch">
+      <input id="demo" type="checkbox">
+      <span class="track" aria-hidden="true"></span>
+      <span class="switch-text">Demo traffic</span>
+    </label>
+    <button type="submit" class="btn primary" id="start-btn">Start capture</button>
+    <button type="button" class="btn" id="stop-btn" disabled>Stop</button>
+    <span class="dock-gap" aria-hidden="true"></span>
+    <button type="button" class="btn quiet" id="clear-btn">Clear</button>
+    <a class="btn quiet" id="export-btn" href="/api/packets/export">Export CSV</a>
+  </form>
+  <p class="error" id="error" role="alert" hidden></p>
+
+  <main>
+    <!-- ============ The map: the one big moment ============ -->
+    <section class="stage" aria-label="Live traffic map">
+      <div class="map" id="map">
+        <canvas id="map-canvas" role="img" aria-label="Live map of packets travelling between this machine and other hosts"></canvas>
+
+        <div class="map-rate" aria-hidden="true">
+          <span class="rate-num" id="n-pps">0</span>
+          <span class="rate-lbl">packets / second</span>
+        </div>
+
+        <div class="map-hint" id="map-hint">
+          <p class="hint-title">The wire is quiet</p>
+          <p>Start a capture to see traffic arrive, or try it with made-up packets first.</p>
+          <button type="button" class="btn light" id="try-demo">Try demo traffic</button>
+        </div>
+
+        <div class="tip" id="tip" hidden></div>
+      </div>
+
+      <div class="cargo">
+        <div class="cargo-bar" id="proto-strip" role="img" aria-label="Share of packets by protocol"></div>
+        <ul class="chips" id="proto-chips" aria-label="Filter by protocol"></ul>
+      </div>
+    </section>
+
+    <!-- ============ Numbers ============ -->
+    <section class="gauges" aria-label="Summary">
+      <div class="gauge">
+        <span class="g-num" id="g-packets">0</span>
+        <span class="g-lbl">packets captured</span>
+        <canvas class="spark" id="sp-packets" aria-hidden="true"></canvas>
+      </div>
+      <div class="gauge">
+        <span class="g-num" id="g-bytes">0 B</span>
+        <span class="g-lbl">data seen</span>
+        <canvas class="spark" id="sp-bytes" aria-hidden="true"></canvas>
+      </div>
+      <div class="gauge">
+        <span class="g-num" id="g-bps">0 B/s</span>
+        <span class="g-lbl">throughput right now</span>
+      </div>
+      <div class="gauge">
+        <span class="g-num" id="g-hosts">0</span>
+        <span class="g-lbl">hosts on the map</span>
+      </div>
+    </section>
+
+    <!-- ============ Busiest hosts ============ -->
+    <section class="talkers">
+      <div>
+        <h2>Busiest senders</h2>
+        <ol class="rank" id="top-src"></ol>
+      </div>
+      <div>
+        <h2>Busiest receivers</h2>
+        <ol class="rank" id="top-dst"></ol>
+      </div>
+    </section>
+
+    <!-- ============ Packet log ============ -->
+    <section class="log" aria-labelledby="log-title">
+      <div class="log-head">
+        <h2 id="log-title">Packet log</h2>
+        <span class="count" id="row-count"></span>
+        <div class="filters">
+          <label class="sr-only" for="search">Search packets</label>
+          <input id="search" type="search" placeholder="Search address, port or info" autocomplete="off">
+          <button type="button" class="btn" id="pause-btn" aria-pressed="false">Pause log</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Time</th><th>Source</th><th>Destination</th>
+              <th>Protocol</th><th>Length</th><th>Info</th>
+            </tr>
+          </thead>
+          <tbody id="packet-body"></tbody>
+        </table>
+        <p class="empty" id="empty">No packets yet.</p>
+      </div>
+
+      <div class="detail" id="detail" hidden>
+        <div class="route">
+          <div class="endpoint"><span class="ep-lbl">From</span><span class="ep-val" id="r-src"></span></div>
+          <div class="wire" id="r-wire">
+            <span class="wire-badge"><b id="r-proto"></b><i id="r-len"></i></span>
+          </div>
+          <div class="endpoint end"><span class="ep-lbl">To</span><span class="ep-val" id="r-dst"></span></div>
+        </div>
+        <div class="meter" title="Packet size compared with a full 1514-byte Ethernet frame"><span id="r-meter"></span></div>
+        <dl id="d-list"></dl>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

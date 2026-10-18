@@ -1,0 +1,22 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local configuration and captures
+.env
+*.local
+*.pcap
+*.pcapng
+*.csv
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
